@@ -2,6 +2,7 @@ import pygame as pg
 from OpenGL.GL import *
 import numpy as np
 from OpenGL.GL.shaders import compileProgram, compileShader
+import random
 
 class App:
     def __init__(self):
@@ -30,6 +31,9 @@ class App:
         )
 
         return shader
+    
+    def clamp(self, value, min_val, max_val):
+        return max(min_val, min(max_val, value))
 
     def mainLoop(self):
         running = True
@@ -42,6 +46,22 @@ class App:
 
             # refresh screen
             glClear(GL_COLOR_BUFFER_BIT)
+
+            vert = list(self.triangle.vertices)
+
+            for i in range(0, len(vert), 6):
+                # Update position (first 3 values): range [-1, 1]
+                for j in range(3):
+                    delta = random.uniform(-0.01, 0.01)
+                    vert[i + j] = self.clamp(vert[i + j] + delta, -1.0, 1.0)
+                # Update color (next 3 values): range [0, 1]
+                for j in range(3, 6):
+                    delta = random.uniform(-0.1, 0.1)
+                    vert[i + j] = self.clamp(vert[i + j] + delta, 0.0, 1.0)
+
+
+            new_triangle = Triangle(tuple(vert))
+            self.triangle = new_triangle
 
             glUseProgram(self.shader)
             glBindVertexArray(self.triangle.vao)
@@ -62,13 +82,16 @@ class App:
         pg.quit()
 
 class Triangle:
-    def __init__(self):
+    def __init__(self, vert_choice = None):
         # x, y, z, r, g, b
-        self.vertices = (
-            -0.5, -0.5, 0.0, 1.0, 0.0, 0.0,
-             0.5, -0.5, 0.0, 0.0, 1.0, 0.0,
-             0.0,  0.5, 0.0, 0.0, 0.0, 1.0,
-        )
+        if vert_choice != None:
+            self.vertices = vert_choice
+        else:
+            self.vertices = (
+                -0.5, -0.5, 0.0, 1.0, 0.0, 0.0,
+                0.5, -0.5, 0.0, 0.0, 1.0, 0.0,
+                0.0,  0.5, 0.0, 0.0, 0.0, 1.0,
+            )
 
         self.vertices = np.array(self.vertices, dtype = np.float32)
 
