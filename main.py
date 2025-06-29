@@ -1,6 +1,7 @@
 import pygame as pg
 from OpenGL.GL import *
 import numpy as np
+from OpenGL.GL.shaders import compileProgram, compileShader
 
 class App:
     def __init__(self):
@@ -11,8 +12,24 @@ class App:
 
         # initialize OpenGL
         glClearColor(0.1, 0.2, 0.2, 1)
-
+        self.shader = self.createShader("shaders/vertex.txt", "shaders/fragment.txt")
+        glUseProgram(self.shader)
+        self.triangle = Triangle()
         self.mainLoop()
+
+    def createShader(self, vertexFilePath, fragmentFilePath):
+        with open(vertexFilePath, "r") as f:
+            vertex_src = f.readlines()
+
+        with open(fragmentFilePath, "r") as f:
+            fragment_src = f.readlines()
+
+        shader = compileProgram(
+            compileShader(vertex_src, GL_VERTEX_SHADER),
+            compileShader(fragment_src, GL_FRAGMENT_SHADER),
+        )
+
+        return shader
 
     def mainLoop(self):
         running = True
@@ -25,6 +42,11 @@ class App:
 
             # refresh screen
             glClear(GL_COLOR_BUFFER_BIT)
+
+            glUseProgram(self.shader)
+            glBindVertexArray(self.triangle.vao)
+            glDrawArrays(GL_TRIANGLES, 0, self.triangle.vertex_count)
+
             pg.display.flip()
 
             # timing
@@ -33,6 +55,10 @@ class App:
         self.quit()
 
     def quit(self):
+
+        self.triangle.destroy()
+        glDeleteProgram(self.shader)
+
         pg.quit()
 
 class Triangle:
@@ -44,7 +70,7 @@ class Triangle:
              0.0,  0.5, 0.0, 0.0, 0.0, 1.0,
         )
 
-        self.vertices = np.array(self.ertices, dtype = np.float32)
+        self.vertices = np.array(self.vertices, dtype = np.float32)
 
         self.vertex_count = 3
 
