@@ -10,10 +10,10 @@ RES = (640, 480)
 objects = {}
 cameraPos = [0, 0, 0]
 cameraOrientation = [0, 0, 0]
-move_speed = 0.1
+move_speed = 0.3
 mouse_sensitivity = 0.2
 FOV = 90
-FOVY = (90/RES[0])*RES[1]
+FOVY = (FOV/RES[0])*RES[1]
 
 pg.init()
 pg.event.set_grab(False)
@@ -38,20 +38,110 @@ def get_right_vector(yaw):
     z = math.cos(yaw_rad - math.pi / 2)
     return [x, 0, z]
 
+
+def get_up_vector(pitch, yaw):
+    forward = get_forward_vector(pitch, yaw)
+    right = get_right_vector(yaw)
+    up = cross(right, forward)
+    # Optionally normalize the up vector:
+    length = math.sqrt(sum(i*i for i in up))
+    if length == 0:
+        return [0, 1, 0]  # fallback up vector
+    return [i / length for i in up]
+
+def rotate_point_around_point(point, center, pitch_deg, yaw_deg, roll_deg):
+    """
+    Rotate a 3D point around an arbitrary center point by given Euler angles (degrees).
+    
+    Parameters:
+        point (tuple/list): (x, y, z) coordinates of the point to rotate.
+        center (tuple/list): (cx, cy, cz) coordinates of the center point to rotate around.
+        pitch_deg (float): Rotation angle around X-axis in degrees.
+        yaw_deg (float): Rotation angle around Y-axis in degrees.
+        roll_deg (float): Rotation angle around Z-axis in degrees.
+    
+    Returns:
+        tuple: Rotated (x, y, z) coordinates.
+    """
+    # Translate point to origin based on center
+    x, y, z = point
+    cx, cy, cz = center
+    x -= cx
+    y -= cy
+    z -= cz
+    
+    # Convert degrees to radians
+    pitch = math.radians(pitch_deg)
+    yaw = math.radians(yaw_deg)
+    roll = math.radians(roll_deg)
+    
+    # Precompute sines and cosines
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    cr, sr = math.cos(roll), math.sin(roll)
+    
+    # Rotation matrices
+    R_x = [
+        [1, 0, 0],
+        [0, cp, -sp],
+        [0, sp, cp]
+    ]
+    
+    R_y = [
+        [cy, 0, sy],
+        [0, 1, 0],
+        [-sy, 0, cy]
+    ]
+    
+    R_z = [
+        [cr, -sr, 0],
+        [sr, cr, 0],
+        [0, 0, 1]
+    ]
+    
+    # Multiply R_y and R_z: R_yz = R_y * R_z
+    R_yz = [[0]*3 for _ in range(3)]
+    for i in range(3):
+        for j in range(3):
+            R_yz[i][j] = sum(R_y[i][k]*R_z[k][j] for k in range(3))
+    
+    # Multiply R_x and R_yz: R = R_x * (R_y * R_z)
+    R = [[0]*3 for _ in range(3)]
+    for i in range(3):
+        for j in range(3):
+            R[i][j] = sum(R_x[i][k]*R_yz[k][j] for k in range(3))
+    
+    # Apply rotation matrix to translated point
+    x_rot = R[0][0]*x + R[0][1]*y + R[0][2]*z
+    y_rot = R[1][0]*x + R[1][1]*y + R[1][2]*z
+    z_rot = R[2][0]*x + R[2][1]*y + R[2][2]*z
+    
+    # Translate back
+    x_rot += cx
+    y_rot += cy
+    z_rot += cz
+    
+    return (x_rot, y_rot, z_rot)
+
 def renderObjects(self):
     for triangles in objects.values():
         for triangle in triangles["Triangles"]:
             new_points = []
             for point in triangle:
-                x, y, z, a = point
+                x, y, z, a = *rotate_point_around_point(point[:3], cameraPos, *cameraOrientation), point[3]
+                x -= cameraPos[0]
+                y -= cameraPos[1]
+                z -= cameraPos[2]
 
                 # x diff
-                ax = x / (abs(z * math.tan(math.radians(FOV/2)) - z * math.tan(math.radians(-FOV/2)))/2)
+                ax = x / ((z * math.tan(math.radians((FOV/2))) - z * math.tan(math.radians((-FOV/2))))/2)
                 new_points.append(ax)
 
                 # y diff
-                ay = y / (abs(z * math.tan(math.radians(FOVY/2)) - z * math.tan(math.radians(-FOVY/2)))/2)
+                ay = y / ((z * math.tan(math.radians((FOVY/2))) - z * math.tan(math.radians((-FOVY/2))))/2)
                 new_points.append(ay)
+
+
 
                 new_points.append(a)
 
@@ -96,6 +186,11 @@ class App:
 
     def mainLoop(self):
         running = True
+
+        createCube("a", (10,0,20), (5, 5, 5), (0, 0, 0))
+        createCube("b", (-10,0,20), (5, 5, 5), (45, 45, 45))
+        # createTween("a", (20,0,20), (5, 5, 5), (0, 0, 0), 5)
+        print(Tweens)
         
         while running:
             global cameraPos
@@ -115,7 +210,12 @@ class App:
 
             # refresh screen
             glClear(GL_COLOR_BUFFER_BIT)
+            
+            if random.randint(1, 10) == 1:
+                print(cameraPos)
+                print(cameraOrientation)
 
+            performTweens()
 
             renderObjects(self)
             # createTriangle(self, *(1, 1), *(-1, -1), *(-1, -0))
@@ -124,6 +224,7 @@ class App:
 
             # Movement
             forward = get_forward_vector(*cameraOrientation[:2])
+            # up = get_up_vector(*cameraOrientation[:2])
             right = get_right_vector(cameraOrientation[1])
             
             if keys[pg.K_w]:
@@ -131,19 +232,24 @@ class App:
             if keys[pg.K_s]:
                 cameraPos = [cameraPos[i] - forward[i] * move_speed for i in range(3)]
             if keys[pg.K_a]:
-                cameraPos = [cameraPos[i] - right[i] * move_speed for i in range(3)]
-            if keys[pg.K_d]:
                 cameraPos = [cameraPos[i] + right[i] * move_speed for i in range(3)]
+            if keys[pg.K_d]:
+                cameraPos = [cameraPos[i] - right[i] * move_speed for i in range(3)]
+            # if keys[pg.K_q]:
+            #     cameraPos = [cameraPos[i] + up[i] * move_speed for i in range(3)]
+            # if keys[pg.K_e]:
+            #     cameraPos = [cameraPos[i] - up[i] * move_speed for i in range(3)]
 
             
             # Mouse look (while right-click is held)
             if self.right_mouse_held:
                 dx, dy = pg.mouse.get_rel()
-                cameraOrientation[1] += dx * mouse_sensitivity  # Yaw
+                cameraOrientation[1] -= dx * mouse_sensitivity  # Yaw
                 cameraOrientation[0] -= dy * mouse_sensitivity  # Pitch
 
                 # Clamp pitch to avoid flipping
                 cameraOrientation[0] = max(-89, min(89, cameraOrientation[0]))
+                
 
             font = pg.font.SysFont(None, 24)
             debug_text = font.render(f"Pos: {cameraPos}, Orient: {cameraOrientation}", True, (255, 255, 255))
@@ -226,6 +332,9 @@ def normalize(v):
         return (0, 0, 0)
     return tuple(coord / length for coord in v)
 
+def vector_sub(a, b):
+    return tuple(ai - bi for ai, bi in zip(a, b))
+
 def dot(a, b):
     return sum(x*y for x, y in zip(a, b))
 
@@ -257,36 +366,6 @@ def rotate_vertex(v, orientation):
 def createCube(name, origin, dimensions, orientation=(0, 0, 0)):
     orientation = tuple([math.radians(i) for i in orientation])
     global cameraPos
-    # cx, cy, cz = origin
-    # hs = size / 2  # half size
-
-    # # Compute all 8 vertices relative to the center
-    # vertices = [
-    #     (cx - hs, cy - hs, cz - hs),  # 0 - bottom-front-left
-    #     (cx + hs, cy - hs, cz - hs),  # 1 - bottom-front-right
-    #     (cx + hs, cy + hs, cz - hs),  # 2 - top-front-right
-    #     (cx - hs, cy + hs, cz - hs),  # 3 - top-front-left
-    #     (cx - hs, cy - hs, cz + hs),  # 4 - bottom-back-left
-    #     (cx + hs, cy - hs, cz + hs),  # 5 - bottom-back-right
-    #     (cx + hs, cy + hs, cz + hs),  # 6 - top-back-right
-    #     (cx - hs, cy + hs, cz + hs),  # 7 - top-back-left
-    # ]
-
-    # # Define 6 faces using the above vertices (each face has 4 vertices)
-    # faces = [
-    #     [vertices[0], vertices[1], vertices[2], vertices[3]],  # front
-    #     [vertices[4], vertices[5], vertices[6], vertices[7]],  # back
-    #     [vertices[0], vertices[1], vertices[5], vertices[4]],  # bottom
-    #     [vertices[3], vertices[2], vertices[6], vertices[7]],  # top
-    #     [vertices[1], vertices[2], vertices[6], vertices[5]],  # right
-    #     [vertices[0], vertices[3], vertices[7], vertices[4]],  # left
-    # ]
-
-    # # Convert each face into two triangles
-    # triangles = []
-    # for face in faces:
-    #     triangles.append([face[0], face[1], face[2]])
-    #     triangles.append([face[0], face[2], face[3]])
 
     cx, cy, cz = origin
     camx, camy, camz = cameraPos
@@ -310,21 +389,21 @@ def createCube(name, origin, dimensions, orientation=(0, 0, 0)):
     for x, y, z in raw_vertices:
         rx, ry, rz = rotate_vertex((x, y, z), orientation)
         world_x, world_y, world_z = cx + rx, cy + ry, cz + rz
-        rotated_vertices.append((world_x, world_y, world_z))
+        rotated_vertices.append((world_x, world_y, world_z, 0.5))
 
-    # Calculate top and bottom Y for shading
-    y_values = [v[1] for v in rotated_vertices]
-    min_y = min(y_values)
-    max_y = max(y_values)
+    # # Calculate top and bottom Y for shading
+    # y_values = [v[1] for v in rotated_vertices]
+    # min_y = min(y_values)
+    # max_y = max(y_values)
 
-    # Apply shading
-    shaded_vertices = []
-    for x, y, z in rotated_vertices:
-        if max_y == min_y:
-            shade = 0  # avoid division by zero
-        else:
-            shade = (y - min_y) / (max_y - min_y)
-        shaded_vertices.append((x, y, z, shade))
+    # # Apply shading
+    # shaded_vertices = []
+    # for x, y, z in rotated_vertices:
+    #     if max_y == min_y:
+    #         shade = 0  # avoid division by zero
+    #     else:
+    #         shade = (y - min_y) / (max_y - min_y)
+    #     shaded_vertices.append((x, y, z, shade))
 
     # Define faces using vertex indices
     face_indices = [
@@ -339,7 +418,7 @@ def createCube(name, origin, dimensions, orientation=(0, 0, 0)):
     # Compute face center distance to camera for sorting
     face_info = []
     for face in face_indices:
-        pts = [shaded_vertices[i][:3] for i in face]
+        pts = [rotated_vertices[i][:3] for i in face]
         center = (
             sum(p[0] for p in pts) / 4,
             sum(p[1] for p in pts) / 4,
@@ -356,8 +435,8 @@ def createCube(name, origin, dimensions, orientation=(0, 0, 0)):
     triangles = []
     for _, face in face_info:
         i0, i1, i2, i3 = face
-        triangles.append([shaded_vertices[i0], shaded_vertices[i1], shaded_vertices[i2]])
-        triangles.append([shaded_vertices[i0], shaded_vertices[i2], shaded_vertices[i3]])
+        triangles.append([rotated_vertices[i0], rotated_vertices[i1], rotated_vertices[i2]])
+        triangles.append([rotated_vertices[i0], rotated_vertices[i2], rotated_vertices[i3]])
 
     objects[name] = {}
     objects[name]["Info"] = ["cube", origin, dimensions, orientation]
@@ -368,9 +447,9 @@ def createCube(name, origin, dimensions, orientation=(0, 0, 0)):
 Tweens = []
 def createTween(obj, new_pos, new_size, new_rotation, time):
     frames = 60*time
-    pos = tuple((a - b)/frames for a, b in zip(new_pos, objects[name]["Info"][1]))
-    size = tuple((a - b)/frames for a, b in zip(new_size, objects[name]["Info"][1]))
-    rot = tuple((a - b)/frames for a, b in zip(new_rotation, objects[name]["Info"][1]))
+    pos = tuple((a - b)/frames for a, b in zip(new_pos, objects[obj]["Info"][1]))
+    size = tuple((a - b)/frames for a, b in zip(new_size, objects[obj]["Info"][2]))
+    rot = tuple((a - b)/frames for a, b in zip(new_rotation, objects[obj]["Info"][3]))
     Tweens.append([obj, pos, size, rot, frames])
 
 def performTweens():
@@ -390,8 +469,7 @@ def performTweens():
 
 
 
-createCube("a", (0,0,20), (5, 5, 5), (0, 0, 0))
-print(objects)
+# print(objects)
 
 
 if __name__ == "__main__":
